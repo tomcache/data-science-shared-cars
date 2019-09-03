@@ -46,6 +46,25 @@ length(unique(sharedAutos$longitude))
 
 length(unique(sharedAutos$total_cars))
 
+# -----------------------------------------------------------------
+#
+# Data formatting - we will add some metrics to make our analysis easier
+
+db <- read_csv("autotel//sample_table.csv") %>% 
+  mutate(timestamp = as.POSIXct(timestamp)) %>% 
+  mutate(timestamp = timestamp + 3600*2, # local time
+         Hour = lubridate::hour(timestamp),
+         Minute = lubridate::minute(timestamp),
+         Weekday = lubridate::wday(timestamp)
+  )
+
+dbgrid <- db %>%
+  mutate(Grid_lat = round(latitude,4),
+         Grid_long = round(longitude,4)
+ )
+
+
+
 # Take a look at the Timestamp and get it into the correct format
 class(sharedAutos$timestamp)
 sharedAutos$timestamp <- ymd_hms(sharedAutos$timestamp)
@@ -120,7 +139,47 @@ head(carCounts_aloc)
 hist(carCounts_loc$n)
 
 
-# for location x,y 
+# to better understand car demand, this analysis will first create a grid 
+# over the city of approximately 100M square, and aggregate the statistics 
+# for the number of cars parked within each grid.
+#
+# We will then use these data to compute the number of trip originations
+# vs. number of cars available to get a utilization, or demand factor. We 
+# want to assess the number of grids with high utilization as a way to 
+# understand where there aren't enough cars, as well as grids with low
+# utilization, where there is an excess of cars. 
+#
+# For the purposes of this study, resolving the grid to a precision of 
+# 0.001 unit of latitude and longitude will give us the size (~ 110 x 90M)
+# we are looking for:
+
+dbgrid %>% group_by(Grid_lat, Grid_long, Hour) %>% summarize(grid_total_cars = sum(total_cars)) %>%
+  ggplot(aes(Grid_long, Grid_lat, color = grid_total_cars)) + geom_point() +
+  facet_wrap(~Hour)
+
+cars_by_grid <- dbgrid %>% group_by(Grid_lat, Grid_long, Hour) %>% 
+  summarize(grid_total_cars = sum(total_cars))
+
+(max(cars_by_grid$grid_total_cars))
+
+(max(db$total_cars))
+
+(sum(db$total_cars))
+
+(sum(cars_by_grid$grid_total_cars))
+
+hist(db$total_cars, col = "slategray4")
+
+hist(cars_by_grid$grid_total_cars, 
+     xlim = c(0,100),
+     col = slategray4,
+     breaks = c(0,1,2,3,4,5,10,15,20,25,30,35,40,45,50,60,70,80,90,100,3000))
+
+plot(density(cars_by_grid$grid_total_cars))
+
+sample_summary <- sharedAutos_day %>% group_by(latitude, longitude) %>% summarize(n = n())
+
+hist(sample_summary$n)
 
 
 
