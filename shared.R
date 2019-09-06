@@ -32,6 +32,8 @@ sharedAutos <- read.csv("autotel/sample_table.csv", stringsAsFactors = FALSE)
 #------------------------------------------------------------------
 #
 # Data Exploration and Visualization
+#
+# Section 1: Data preparation and organization
 
 # Take a look at our data:
 glimpse(sharedAutos)
@@ -49,6 +51,7 @@ length(unique(sharedAutos$total_cars))
 # -----------------------------------------------------------------
 #
 # Data formatting - we will add some metrics to make our analysis easier
+# We need to fix the timestamp format, we set to local time, add metrics for time of day / week
 
 db <- read_csv("autotel//sample_table.csv") %>% 
   mutate(timestamp = as.POSIXct(timestamp)) %>% 
@@ -63,7 +66,24 @@ dbgrid <- db %>%
          Grid_long = round(longitude,4)
  )
 
+#------------------------------------------------------------------
+# 
+# Single-day analysis
+
+#For our first sample, we choose December 15, 2018 (Tuesday):
+sample_day1 <- ymd("2018-12-15")
+
 dbgrid_day1 <- dbgrid %>% filter(as_date(timestamp) == sample_day1 )
+
+#For our second sample, we choose December 18, 2018 (Friday):
+sample_day2 <- ymd("2018-12-21")
+
+#For our third sample, we choose December 15, 2018 (Wednesday):
+sample_day3 <- ymd("2019-01-09")
+
+
+
+
 
 # Take a look at the Timestamp and get it into the correct format
 class(sharedAutos$timestamp)
@@ -76,8 +96,6 @@ max(sharedAutos$timestamp)
 
 # Create some filters: day, week , month - perhaps even hour by hour
 
-#For our first sample, we choose December 15, 2018:
-sample_day1 <- ymd("2018-12-15")
 
 sharedAutos_day <- sharedAutos %>% filter(as_date(timestamp) == sample_day1 )
 
@@ -177,6 +195,21 @@ hist(cars_by_grid$grid_total_cars,
 
 plot(density(cars_by_grid$grid_total_cars))
 
+flow_start <- dbgrid_day1 %>% group_by(Grid_lat, Grid_long, Hour) %>% filter(Minute == 0) %>%
+  summarize(carsList)
+
+flow_end <- dbgrid_day1 %>% group_by(Grid_lat, Grid_long, Hour) %>% filter(Minute == 59) %>%
+  summarize(carsList)
+
+flow_start <- mutate(flow_start, gridCars = unique(carsList))
+
+levels(factor(flow_start$carsList))
+
+flow <- flow_end - flow_start
+
+flow %>% ggplot(aes(Grid_long, Grid_lat, color = grid_total_cars)) + geom_point() +
+  facet_wrap(~Hour)
+
 # Calculate ho many cars leave and enter a grid by timestamp:
 dbcars <-  db %>% 
   select(carsList) %>% 
@@ -218,6 +251,8 @@ dbByCarGrid <- dbByCar %>%
          Grid_long = round(longitude,4)
   )
 
+
+
 dbByCar %>% group_by(Grid_lat, Grid_long,)
 
 
@@ -226,11 +261,91 @@ sample_summary <- sharedAutos_day %>% group_by(latitude, longitude) %>% summariz
 hist(sample_summary$n)
 
 
+dbByCarA <- left_join(db, dbcars) %>% 
+  gather(CarI, Car, car1:car10)  %>% 
+  filter(!is.na(Car)) %>% 
+  group_by(Car) %>% 
+  arrange(timestamp) %>% 
+  mutate(Grid_lat = round(latitude,2),
+         Grid_long = round(longitude,2)
+  ) %>%
+  ungroup()
+
+dbByCarA_day1 <- dbByCarA %>% filter(as_date(timestamp) == sample_day1 )
+
+dbByCarA_day2 <- dbByCarA %>% filter(as_date(timestamp) == sample_day2 )
+
+dbByCarA_day3 <- dbByCarA %>% filter(as_date(timestamp) == sample_day3 )
 
 
+flow_start <- dbByCarA_day1 %>% group_by(Grid_lat, Grid_long, Hour) %>% filter(Minute == 0) %>%
+  summarize(beginning = n_distinct(Car))
 
 
+flow_end <- dbByCarA_day1 %>% group_by(Grid_lat, Grid_long, Hour) %>% filter(Minute == 59) %>%
+  summarize(end = n_distinct(Car))
 
+flow <- full_join(flow_start, flow_end, by = NULL)
+
+flow[is.na(flow)] <- 0
+
+flow <- mutate(flow, delta = end - beginning)
+
+hist(flow$delta)
+
+flow %>% 
+  ggplot(aes(Grid_long, Grid_lat, color = delta)) + geom_point() +
+  facet_wrap(~Hour)
+
+
+# Another approach to looking at flow:
+
+# find the number of cars / grid
+flowByGrid <- dbByCarA_day1 %>% group_by(Grid_lat, Grid_long, Hour) %>%
+  summarize(inventory = n_distinct(Car))
+
+flowByGrid2 <- dbByCarA_day2 %>% group_by(Grid_lat, Grid_long, Hour) %>%
+  summarize(inventory = n_distinct(Car))
+
+flowByGrid3 <- dbByCarA_day3 %>% group_by(Grid_lat, Grid_long, Hour) %>%
+  summarize(inventory = n_distinct(Car))
+
+# Calculate the change in inventory by grid per hour:
+
+flowByGrid <- 
+  flowByGrid %>%
+  group_by(Grid_lat, Grid_long) %>%
+  mutate(carFlow = inventory - dplyr::lag(inventory, n = 1, default = NA, order_by = Hour))
+
+flowByGrid2 <- 
+  flowByGrid2 %>%
+  group_by(Grid_lat, Grid_long) %>%
+  mutate(carFlow = inventory - dplyr::lag(inventory, n = 1, default = NA, order_by = Hour))
+
+flowByGrid3 <- 
+  flowByGrid3 %>%
+  group_by(Grid_lat, Grid_long) %>%
+  mutate(carFlow = inventory - dplyr::lag(inventory, n = 1, default = NA, order_by = Hour))
+
+# Plot the results:
+
+flowByGrid %>% 
+  ggplot(aes(Grid_long, Grid_lat, color = carFlow)) + geom_point(size = 2) +
+  scale_color_gradient2(midpoint = 0, low = "blue", mid = "lightyellow",
+                        high = "red", space = "Lab" ) +
+  theme_dark() + facet_wrap(~Hour)
+
+flowByGrid2 %>% 
+  ggplot(aes(Grid_long, Grid_lat, color = carFlow)) + geom_point(size = 2) +
+  scale_color_gradient2(midpoint = 0, low = "blue", mid = "lightyellow",
+                        high = "red", space = "Lab" ) +
+  theme_dark() + facet_wrap(~Hour)
+
+flowByGrid3 %>% 
+  ggplot(aes(Grid_long, Grid_lat, color = carFlow)) + geom_point(size = 2) +
+  scale_color_gradient2(midpoint = 0, low = "blue", mid = "lightyellow",
+                        high = "red", space = "Lab" ) +
+  theme_dark() + facet_wrap(~Hour)
 #------------------------------------------------------------------
 # 
 # Prediction system
