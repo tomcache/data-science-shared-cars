@@ -1,0 +1,35 @@
+---
+title: "Shared Car Service Availability Study"
+author: "Thomas Linnell"
+date: "9/10/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+## Introduction
+As part of a program to improve the livability of its environs, the city of Tel Aviv, Israel has developed a car sharing service (think Zipcar) that allows users to take a car from an available location whenever they wish and use it for transportation. When finished, they can park it at the nearest designated spot near their destination that is open. Since this service depends on the users to distribute cars around the city, and since demand patterns frequently shift, it is important to study the usage patterns in order to be able to provide enough cars in the right places to insure that most users can utilize this service when they need it.
+
+This project will use data from a database available on kaggle that contains data on the avaialability of cars in Tel Aviv from 
