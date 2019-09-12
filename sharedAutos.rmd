@@ -5,9 +5,162 @@ date: "9/10/2019"
 output: html_document
 ---
 
+## Introduction
+As part of a program to improve the livability of its environs, the city of Tel Aviv, Israel has developed a car sharing service (think Zipcar) called AutoTel that allows users to take a car from an available location whenever they wish and use it for transportation. When finished, they can park it at the nearest designated spot near their destination that is open. Since this service depends on the users to distribute cars around the city, and since demand patterns frequently shift, it is important to study the usage patterns in order to be able to provide enough cars in the right places to insure that most users can utilize this service when they need it.
+
+This project will use data from a database available on kaggle that contains data on the avaialability of cars in Tel Aviv from xxx to yyy. We will examine this data and modify it to make it more useful for our analysis, and will provide some observations on usage patterns.
+
+What this data does not provide, however is any information on the users demand, other than by proxy when a car is moved from a particular location (if someone wants to use a car in a particular neighborhood, but there is no car nearby, we don't see that information). However, we will develop a model, using machine learning techniques, in order to predict the availability of cars.
+
+### Project setup and environment
+
+Check for required packages and install when necessary. 
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+
+# Here we check for and load all of the required packages to run the project.
+
+if(!require(readr)) install.packages("readr", repos = "http://cran.us.r-project.org")
+if(!require(dplyr)) install.packages("dplyr", repos = "http://cran.us.r-project.org")
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(ggmap)) install.packages("ggmap", repos = "http://cran.us.r-project.org")
+if(!require(lubridate)) install.packages("lubridate", repos = "http://cran.us.r-project.org")
+if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+
 ```
+
+### Data
+
+This project will utilize the dataset _shared_table_, a sample of a Big Query dataset available on Kaggle provided by DoIt International, and can be found  [here](https://www.kaggle.com/doit-intl/autotel-shared-car-locations).
+
+For the purposes of this project, a copy of this dataset is also provided in the github project here, since Kaggle requires an authenticated account in order to access the data. 
+
+This dataset sample contains one months worth of data on parked cars in the following format:
+
+timestamp, geographic location, # of cars in location, list of car identifiers
+
+We will load the data and adjust it into the format that we want to use to analyze the usage patterns:
+
+```{r load-data, warning = FALSE}
+
+dl <- tempfile()
+download.file("https://www.kaggle.com/doit-intl/autotel-shared-car-locations/downloads/autotel-shared-car-locations.zip", dl)
+
+
+
+db <- read_csv("autotel//sample_table.csv")
+
+```
+
+
+We first take a look at the structure, definition and layout of the sample data:
+```{r view-data}
+
+glimpse(db)
+summary(db)
+
+min(db$timestamp)
+max(db$timestamp)
+
+length(unique(db$carsList))
+
+length(unique(db$latitude))
+
+length(unique(db$longitude))
+
+length(unique(db$total_cars))
+
+```
+
+Our first task will be to arrange the data to make it more useful for our analysis. We want to correct the timestamp format, and we will add columns to allow us to group observations by time, day of week, and we also adjust the timestamps for local time. Finally, we add columns to allow grouping by location.
+
+```{r tidying-data}
+
+db <- db %>% 
+  mutate(timestamp = as.POSIXct(timestamp)) %>% 
+  mutate(timestamp = timestamp + 3600*2, # local time = GMT/UTC + 2
+         Hour = lubridate::hour(timestamp),
+         Minute = lubridate::minute(timestamp),
+         Weekday = lubridate::wday(timestamp)
+  )
+
+
+db <- db %>%
+  mutate(Grid_lat = round(latitude,4),
+         Grid_long = round(longitude,4),
+         gridKey = (Grid_lat*10000000000 + Grid_long*10000)
+ )
+
+glimpse(db)
+
+```
+
+### Analysis
+
+We now want to examine the data in more detail to see what it can tell us about the usage patterns for the shared car service. Since we have the number and location of all of the shared cars that are not in use for each timestamp entry, we can use this to plot the availability of cars across the fleet for the sample time period:
+
+
+```{r analysis-availability}
+
+db %>% group_by(timestamp) %>% summarize(cars_available = sum(total_cars)) %>%
+    ggplot(aes(timestamp, cars_available)) + geom_line(color = "slategray4", size = 1.0) +
+    geom_smooth(method="auto", se=TRUE, fullrange=FALSE, level=0.95) +
+  ggtitle("Shared Car Availability in Tel Aviv") 
+
+all_cars <- db %>% group_by(timestamp) %>% summarize(cars_available = sum(total_cars))
+
+max(all_cars$cars_available)
+
+```
+
+From this plot, we can see that the demand chages periodically throughout the day, and from the smoothed plot we can also see that the demand is periodic with the day of the week. We also see a dropout around December 18, which as it turns out is a national holiday in Israel. It is also likely that there are effects for other holiday observations during this timeframe which would be more apparent if we had a wider range of samples, but these will not be periodic in nature. 
+
+We'll next take a look in more detail at the apparent periodicity to confirm our intuition:
+
+```{r analysis-availability-detail}
+
+db %>% group_by(Hour) %>% summarize(cars_available = sum(total_cars)) %>%
+    ggplot(aes(Hour, cars_available)) + 
+  geom_bar(stat = "identity", color = "slategray4") +
+  ggtitle("Shared Car Availability in Tel Aviv by Hour") 
+
+
+db %>% group_by(Weekday) %>% summarize(cars_available = sum(total_cars)) %>%
+    ggplot(aes(Wday = wday(Weekday, label = TRUE, abbr = FALSE), cars_available)) + 
+  geom_bar(stat = "identity", color = "slategray4") +
+  ggtitle("Shared Car Availability in Tel Aviv by Weekday") 
+
+db %>% group_by(Weekday) %>% 
+    ggplot(aes(Weekday, total_cars, fill = Weekday)) + 
+  geom_boxplot(aes(group = Weekday)) +
+  ggtitle("Shared Car Availability in Tel Aviv by Hour") 
+
+```
+
+
+By looking at a single 24-hour period for a weekday, we can also observe that the demand for cars starts to occur around 6am, has several local peaks during the day, relaxes around lunch and dinnertime, and surprisingly the peak demand for the day occurs around 9pm before tapering off and going through the cycle again.
+
+```{r analysis-availability-day}
+
+sample_day1 <- ymd("2018-12-15")
+
+dbg_day1 <- dbgrid %>% filter(as_date(timestamp) == sample_day1 )
+
+
+dbg_day1 %>% group_by(timestamp) %>% summarize(cars_available = sum(total_cars)) %>%
+  ggplot(aes(timestamp, cars_available)) + geom_line(color = "slategray4", size = 1.0) +
+  ggtitle("Car Availability for Tuesday, December 15, 2018")
+  
+
+```
+
+
+#### Availability patterns
+
+1-day pattern by hour:
+
 
 ## R Markdown
 
@@ -29,7 +182,6 @@ plot(pressure)
 
 Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
 
-## Introduction
-As part of a program to improve the livability of its environs, the city of Tel Aviv, Israel has developed a car sharing service (think Zipcar) that allows users to take a car from an available location whenever they wish and use it for transportation. When finished, they can park it at the nearest designated spot near their destination that is open. Since this service depends on the users to distribute cars around the city, and since demand patterns frequently shift, it is important to study the usage patterns in order to be able to provide enough cars in the right places to insure that most users can utilize this service when they need it.
 
-This project will use data from a database available on kaggle that contains data on the avaialability of cars in Tel Aviv from 
+
+

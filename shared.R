@@ -27,12 +27,17 @@ if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.
 
 
 dl <- tempfile()
-download.file("https://www.kaggle.com/doit-intl/autotel-shared-car-locations/downloads/autotel-shared-car-locations.zip", dl)
-
+download.file("https://www.kaggle.com/doit-intl/autotel-shared-car-locations/downloads/autotel-shared-car-locations.zip", dl, method = 'libcurl')
+download.file("https://github.com/tomcache/data-science-shared-cars/blob/master/datasource/autotel-shared-car-locations.zip", dl, method = 'libcurl')
 unzip("autotel-shared-car-locations.zip", exdir = "autotel")
 
 
 sharedAutos <- read.csv("autotel/sample_table.csv", stringsAsFactors = FALSE)
+
+
+#
+# p + ggtitle("Plot of length \n by dose") +
+# xlab("Dose (mg)") + ylab("Teeth length")
 
 #------------------------------------------------------------------
 #
@@ -125,8 +130,15 @@ max(db$timestamp)
 #
 # Demand analysis
 db %>% group_by(timestamp) %>% summarize(cars_available = sum(total_cars)) %>%
-    ggplot(aes(timestamp, cars_available)) + geom_line() +
+    ggplot(aes(timestamp, cars_available)) + geom_line(color = "slategray4", size = 1.0) +
     geom_smooth(method="auto", se=TRUE, fullrange=FALSE, level=0.95)
+
+dbg_day1 %>% group_by(timestamp) %>% summarize(cars_available = sum(total_cars)) %>%
+  ggplot(aes(timestamp, cars_available)) + geom_line(color = "slategray4", size = 1.0)
+
+db_week %>% group_by(timestamp) %>% summarize(cars_available = sum(total_cars)) %>%
+  ggplot(aes(timestamp, cars_available)) + geom_line(color = "slategray4", size = 1.0) +
+  geom_smooth(method="glm", se=TRUE, fullrange=TRUE, level=0.95)
   
 #------------------------------------------------------------------
 #
@@ -159,6 +171,14 @@ set.seed(1, sample.kind="Rounding")
 test_index <- createDataPartition(y = dbg_day1$total_cars, times = 1, p = 0.1, list = FALSE)
 dbg1_train <- dbg_day1[-test_index,]
 dbg1_test <- dbg_day1[test_index,]
+
+# and a 1-week data set, from 12/20/18 through 12/26/18:
+week_day1 <- ymd("2018-12-20")
+week_day7 <- ymd("2018-12-26")
+
+db_week <- dbgrid %>% filter(timestamp >= week_day1 & timestamp <= week_day7 )
+
+
 
 #------------------------------------------------------------------
 #
