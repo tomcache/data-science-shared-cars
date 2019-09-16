@@ -124,7 +124,7 @@ db %>% group_by(timestamp) %>% summarize(cars_available = sum(total_cars)) %>%
 
 all_cars <- db %>% group_by(timestamp) %>% summarize(cars_available = sum(total_cars))
 
-max(all_cars$cars_available)
+(fleet <-  max(all_cars$cars_available))
 
 ```
 
@@ -134,9 +134,15 @@ We'll next take a look in more detail at the apparent periodicity to confirm our
 
 ```{r analysis-availability-detail}
 
-db %>% group_by(Hour) %>% summarize(cars_available = sum(total_cars)) %>%
+# We can plot the utilization of the fleet over time:
+dbCarUse <- dbCarUse %>% mutate(utilize = 1 - total_cars/fleet)
+
+dbCarUse %>% ggplot(aes(timestamp, utilize)) + geom_line(color = "slategray4", size = 1.0)
+
+
+dbCarUse %>% group_by(Hour) %>% summarize(cars_available = sum(total_cars)) %>%
     ggplot(aes(Hour, cars_available)) + 
-  geom_bar(stat = "identity", color = "slategray4") +
+  geom_bar(stat = "identity", color = "steelblue2", fill = "lightsteelblue3") +
   ggtitle("Shared Car Availability in Tel Aviv by Hour") 
 
 
@@ -144,6 +150,10 @@ dbCarUse %>% group_by(label_wday) %>%
     ggplot(aes(label_wday, total_cars, fill = label_wday)) + 
   geom_boxplot(aes(group = label_wday)) +
   ggtitle("Shared Car Availability in Tel Aviv by Weekday") 
+
+(Utilize_min <- min(dbCarUse$utilize))
+
+(Utilize_max <- max(dbCarUse$utilize))
 
 ```
 
@@ -164,7 +174,7 @@ db_day1 %>% group_by(timestamp) %>% summarize(cars_available = sum(total_cars)) 
 
 ```
 
-We can also plot some car locations to see how they are distributed across the city, and how this varies by hour, to get a sense of the demand for the service. In order to accomplish this, we will need to get an understanding of the identity of the cars in each location.
+We can also plot some car locations to see how they are distributed across the city, and how this varies by hour, to get a sense of the demand for the service. In order to accomplish this, we will need to get an understanding of the identity of the cars in each location. From our summary of the database, above, we know that there are a maximum of 10 cars in each location per timestamp, so we use that to construct our list:
 
 ```{r analysis-location-day}
 
@@ -196,13 +206,14 @@ dbByCar <- left_join(db, dbcars) %>%
 
 #n We'll limit our data to a single day to keep it from becoming too unweildy. We will also calculate a summary of the number of cars visited in each grid per hour:
 
+
 flowByGrid <- dbByCar %>% 
-  filter(as_date(timestamp) == sample_day1 )%>% 
-  group_by(gridKey, Hour) %>%
+  filter(as_date(timestamp) == sample_day1 ) %>%
+  group_by(Grid_lat, Grid_long, Hour) %>%
   summarize(inventory = n_distinct(Car)
   )
 
-flowByGrid %>% ggplot(aes(gridKey, color = inventory)) + 
+flowByGrid %>% ggplot(aes(Grid_long, Grid_lat, color = inventory)) + 
   geom_point(size = 3) +
   scale_color_gradient2(midpoint = 1, low = "blue",  mid = "gold",
                         high = "red", space = "Lab" ) +
@@ -213,9 +224,70 @@ flowByGrid %>% ggplot(aes(gridKey, color = inventory)) +
 ```
 
 
+And through the magic of ggmaps, we can plot these locations over a map of the city to see 
+
+```{r analysis-location-map}
+
+# First, define the box for Tel Aviv:
+# tav_top <- 32.1500
+# tav_left <- 34.7000
+# tav_bot <- 32.0000
+# tav_right <- 34.8500
+
+tav_top <- 32.1500
+tav_left <- 34.7200
+tav_bot <- 32.0000
+tav_right <- 34.8500
+
+tav_borders <- c(left = tav_left,
+                 right = tav_right,
+                 top = tav_top,
+                 bottom = tav_bot)
+
+tav_map <- get_stamenmap(bbox = tav_borders, zoom = 11)
+
+p <- ggmap(tav_map)
+
+# Calculate the change in inventory by grid per hour:
+
+flowByGrid <- 
+  flowByGrid %>%
+  group_by(Grid_lat, Grid_long) %>%
+  mutate(carFlow = inventory - dplyr::lag(inventory, n = 1, default = NA, order_by = Hour))
+
+
+m1 <- flowByGrid %>% filter(carFlow != 0 & Hour == 12)
+
+m2 <- flowByGrid %>% filter(carFlow != 0 & Hour == 20)
+
+p + geom_point(aes(Grid_long, Grid_lat, color = carFlow), data = m1, size = 3) +
+  scale_color_gradient2(midpoint = 0, low = "blue", mid = "slategray4",
+                        high = "red", space = "Lab" ) +
+  labs(title = "Tel Aviv car locations 12/15/18 12pm")
+
+p + geom_point(aes(Grid_long, Grid_lat, color = carFlow), data = m2, size = 3) +
+  scale_color_gradient2(midpoint = 0, low = "blue", mid = "slategray4",
+                        high = "red", space = "Lab" ) +
+  labs(title = "Tel Aviv car locations 12/15/18 8pm")
+
+
+
+```
+
+
 #### Availability patterns
 
-1-day pattern by hour:
+Let's look at the distribution of the total number of cars by location. We can see from this chart that the distribution is not random, with some locations having many more cars fill spots than others. 
+
+```{r analysis-location-dist}
+db_cars <- db_day1 %>% group_by(gridKey) %>% summarize(cars_available = sum(total_cars))
+
+db_cars$gridKey <- factor(db_cars$gridKey, levels = db_cars$gridKey[order(-db_cars$cars_available)])
+
+ggplot(data = db_cars, aes(x = gridKey, y = cars_available)) + 
+  geom_bar(stat = "identity", color = "slategray4")
+
+```
 
 
 ### Availability Prediction
@@ -233,17 +305,20 @@ test_index <- createDataPartition(y = db$total_cars, times = 1, p = 0.1, list = 
 db_train <- db[-test_index,]
 db_test <- db[test_index,]
 
+db_test <- db_test %>% 
+  semi_join(db_train, by = "gridKey") 
+
 # We will now create a single-day data set, and do the same thing:
 
 sample_day1 <- ymd("2018-12-15")
 
-dbg_day1 <- db %>% filter(as_date(timestamp) == sample_day1 )
+db_day <- db %>% filter(as_date(timestamp) == sample_day1 )
 
 set.seed(1, sample.kind="Rounding")
 # if using R 3.5 or earlier, use `set.seed(1)` instead
-test_index <- createDataPartition(y = dbg_day1$total_cars, times = 1, p = 0.1, list = FALSE)
-dbg1_train <- dbg_day1[-test_index,]
-dbg1_test <- dbg_day1[test_index,]
+test_index <- createDataPartition(y = db_day$total_cars, times = 1, p = 0.1, list = FALSE)
+db_day_train <- db_day[-test_index,]
+db_day_test <- db_day[test_index,]
 
 # and a 1-week data set, from 12/20/18 through 12/26/18:
 week_day1 <- ymd("2018-12-20")
@@ -254,21 +329,66 @@ db_week <- db %>% filter(timestamp >= week_day1 & timestamp <= week_day7 )
 set.seed(1, sample.kind="Rounding")
 # if using R 3.5 or earlier, use `set.seed(1)` instead
 test_index <- createDataPartition(y = db_week$total_cars, times = 1, p = 0.1, list = FALSE)
-db_week_train <- dbg_day1[-test_index,]
-db_week_test <- dbg_day1[test_index,]
+db_week_train <- db_week[-test_index,]
+db_week_test <- db_week[test_index,]
 
 
 ```
+
+
+Now that we have our test sets, we will start building up a prediction model. 
+
+```{r prediction-initial}
+
+
+RMSE <- function(true_ratings, predicted_ratings){
+  sqrt(mean((true_ratings - predicted_ratings)^2))
+}
+
+
+dbTrainMean <- db_train %>% summarize(Mean = mean(total_cars)) 
+mu_dbTrain <- mean(db_train$total_cars)
+
+db_dayTrainMean <- db_day_train %>% summarize(Mean = mean(total_cars)) 
+mu_db_dayTrain <- mean(db_day_train$total_cars)
+
+db_weekTrainMean <- db_week_train %>% summarize(Mean = mean(total_cars)) 
+mu_db_weekTrain <- mean(db_week_train$total_cars)
+
+(baseline_rmse <- RMSE(db_test$total_cars, mu_dbTrain))
+
+(baseline_day_rmse <- RMSE(db_day_test$total_cars, mu_db_dayTrain))
+
+(baseline_week_rmse <- RMSE(db_week_test$total_cars, mu_db_weekTrain))
+
+
+```
+
 
 We now will calculate a naive predictor, utilizing a linear regression model. Since we have detected variability associated with location, time of day, and day of week, we will select these as factors for our calculation:
 
 ```{r prediction-linear}
 
-pred_day <- lm(total_cars ~ Hour + gridKey + Weekday, data = dbg1_train)
+fit_dayH <- lm(total_cars ~ as.factor(Hour), data = db_day_train)
 
-predictions_day <- predict(pred_day, dbg1_test)
+fit_day
 
-RMSE(dbg1_test$total_cars, predictions_day)
+summary(fit_day)
+
+fit_dayL <- lm(total_cars ~ as.factor(gridKey), data = db_day_train)
+
+fit_dayL
+
+
+
+
+pred_day <- lm(total_cars ~ Hour + gridKey + Weekday, data = db_day_train)
+
+summary(pred_day)
+
+predictions_day <- predict(pred_day, db_day_test)
+
+RMSE(db_day_test$total_cars, predictions_day)
 
 
 pred_week <- lm(total_cars ~ Hour + gridKey + Weekday, data = db_week_train)
