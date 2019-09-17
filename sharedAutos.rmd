@@ -340,11 +340,13 @@ Now that we have our test sets, we will start building up a prediction model.
 
 ```{r prediction-initial}
 
+# function for calculating RMSE of prediction vs. actual
 
 RMSE <- function(true_ratings, predicted_ratings){
   sqrt(mean((true_ratings - predicted_ratings)^2))
 }
 
+# Caclculation of simple means for each time epoch:
 
 dbTrainMean <- db_train %>% summarize(Mean = mean(total_cars)) 
 mu_dbTrain <- mean(db_train$total_cars)
@@ -369,20 +371,62 @@ We now will calculate a naive predictor, utilizing a linear regression model. Si
 
 ```{r prediction-linear}
 
+# build up a model for the day data set
+
+# First, the hour effect:
+
+
+day_hour_avgs <- db_day_train %>% 
+  group_by(Hour) %>% 
+  summarize(b_i = mean(total_cars - mu_db_dayTrain))
+
+day_hour_avgs %>% qplot(b_i, geom ="histogram", data = ., color = I("slategray4"))
+
+
+predicted_ratings_day <- mu_db_dayTrain + db_day_test %>% 
+  left_join(day_hour_avgs, by='Hour') %>%
+  pull(b_i)
+
+model_1_day_rmse <- RMSE(predicted_ratings_day, db_day_test$total_cars)
+
+# Then we add the location effect:
+
+day_grid_avgs <- db_day_train %>% 
+  left_join(day_hour_avgs, by = 'Hour') %>%
+  group_by(gridKey) %>% 
+  summarize(b_u = mean(total_cars - mu_db_dayTrain - b_i))
+
+predicted_ratings_day <- db_day_test %>% 
+  left_join(day_hour_avgs, by='Hour') %>%
+  left_join(day_grid_avgs, by='gridKey') %>%
+  mutate(pred = mu_db_dayTrain + b_i + b_u) %>%
+  pull(pred)
+
+
+model_2_day_rmse <- RMSE(predicted_ratings_day, db_day_test$total_cars)
+
+
+
+
+
+
 fit_dayH <- lm(total_cars ~ as.factor(Hour), data = db_day_train)
 
-fit_day
+summary(fit_dayH)
 
-summary(fit_day)
 
 fit_dayL <- lm(total_cars ~ as.factor(gridKey), data = db_day_train)
 
-fit_dayL
+summary(fit_dayL)
+
+fit_dayW <- lm(total_cars ~ as.factor(Weekday), data = db_day_train)
+
+summary(fit_dayW)
 
 
 
 
-pred_day <- lm(total_cars ~ Hour + gridKey + Weekday, data = db_day_train)
+pred_day <- lm(total_cars ~ Hour + gridKey, data = db_day_train)
 
 summary(pred_day)
 
