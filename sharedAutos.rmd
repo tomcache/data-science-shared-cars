@@ -137,8 +137,9 @@ We'll next take a look in more detail at the apparent periodicity to confirm our
 # We can plot the utilization of the fleet over time:
 dbCarUse <- dbCarUse %>% mutate(utilize = 1 - total_cars/fleet)
 
-dbCarUse %>% ggplot(aes(timestamp, utilize)) + geom_line(color = "slategray4", size = 1.0)
-
+dbCarUse %>% ggplot(aes(x = utilize, fill = label_wday)) + 
+  geom_density(position = "identity", alpha = 0.6) +
+  ggtitle("Density Plot of Shared Car Fleet Utilization") 
 
 dbCarUse %>% group_by(Hour) %>% summarize(cars_available = sum(total_cars)) %>%
     ggplot(aes(Hour, cars_available)) + 
@@ -213,13 +214,26 @@ flowByGrid <- dbByCar %>%
   summarize(inventory = n_distinct(Car)
   )
 
+flowByGrid %>% ggplot(aes(Grid_long, Grid_lat, color = inventory, size = inventory)) + 
+  geom_point() +
+  scale_color_gradient2(midpoint = 2.5, low = "blue",  mid = "gold",
+                        high = "red", space = "Lab" )
+  # facet_wrap(~Hour)
+
 flowByGrid %>% ggplot(aes(Grid_long, Grid_lat, color = inventory)) + 
   geom_point(size = 3) +
-  scale_color_gradient2(midpoint = 1, low = "blue",  mid = "gold",
+  scale_color_gradient2(midpoint = 2.5, low = "blue",  mid = "gold",
                         high = "red", space = "Lab" ) +
   facet_wrap(~Hour)
 
+f <- flowByGrid %>% ggplot(aes(Grid_long, Grid_lat, color = inventory, size = inventory, frame = Hour)) + 
+  geom_point() +
+  scale_color_gradient2(midpoint = 2.5, low = "blue",  mid = "gold",
+                        high = "red", space = "Lab" ) +
+theme_set(theme_bw())
 
+f + transition_time(Hour) +
+  labs(title = "Hour: {frame_time}")
 
 ```
 
@@ -235,8 +249,8 @@ And through the magic of ggmaps, we can plot these locations over a map of the c
 # tav_right <- 34.8500
 
 tav_top <- 32.1500
-tav_left <- 34.7200
-tav_bot <- 32.0000
+tav_left <- 34.7350
+tav_bot <- 32.0300
 tav_right <- 34.8500
 
 tav_borders <- c(left = tav_left,
@@ -247,6 +261,15 @@ tav_borders <- c(left = tav_left,
 tav_map <- get_stamenmap(bbox = tav_borders, zoom = 11)
 
 p <- ggmap(tav_map)
+
+p + 
+  geom_point(aes(Grid_long, Grid_lat, color = inventory, size = inventory), data = flowByGrid) +
+  scale_color_gradient2(midpoint = 2.5, low = "blue",  mid = "gold",
+                        high = "red", space = "Lab" )
+
+```
+
+```{r analysis-location-map-extra}
 
 # Calculate the change in inventory by grid per hour:
 
@@ -369,7 +392,7 @@ mu_db_weekTrain <- mean(db_week_train$total_cars)
 
 We now will calculate a naive predictor, utilizing a linear regression model. Since we have detected variability associated with location, time of day, and day of week, we will select these as factors for our calculation:
 
-```{r prediction-linear}
+```{r prediction-linear-day}
 
 # build up a model for the day data set
 
@@ -378,16 +401,104 @@ We now will calculate a naive predictor, utilizing a linear regression model. Si
 
 day_hour_avgs <- db_day_train %>% 
   group_by(Hour) %>% 
-  summarize(b_i = mean(total_cars - mu_db_dayTrain))
+  summarize(b_i_day = mean(total_cars - mu_db_dayTrain))
 
 day_hour_avgs %>% qplot(b_i, geom ="histogram", data = ., color = I("slategray4"))
 
 
 predicted_ratings_day <- mu_db_dayTrain + db_day_test %>% 
   left_join(day_hour_avgs, by='Hour') %>%
-  pull(b_i)
+  pull(b_i_day)
 
 model_1_day_rmse <- RMSE(predicted_ratings_day, db_day_test$total_cars)
+
+# Then we add the location effect:
+
+day_grid_avgs <- db_day_train %>% 
+  left_join(day_hour_avgs, by = 'Hour') %>%
+  group_by(gridKey) %>% 
+  summarize(b_u_day = mean(total_cars - mu_db_dayTrain - b_i_day))
+
+predicted_ratings_day <- db_day_test %>% 
+  left_join(day_hour_avgs, by='Hour') %>%
+  left_join(day_grid_avgs, by='gridKey') %>%
+  mutate(pred = mu_db_dayTrain + b_i_day + b_u_day) %>%
+  pull(pred)
+
+
+model_2_day_rmse <- RMSE(predicted_ratings_day, db_day_test$total_cars)
+
+```
+
+
+```{r prediction-linear-week}
+
+# Now we do the same modeling for the week data set, and the full data set:
+
+# First, the hour effect:
+
+
+week_hour_avgs <- db_week_train %>% 
+  group_by(Hour) %>% 
+  summarize(b_i_week = mean(total_cars - mu_db_weekTrain))
+
+week_hour_avgs %>% qplot(b_i, geom ="histogram", data = ., color = I("slategray4"))
+
+
+predicted_ratings_week <- mu_db_weekTrain + db_week_test %>% 
+  left_join(week_hour_avgs, by='Hour') %>%
+  pull(b_i_week)
+
+model_1_week_rmse <- RMSE(predicted_ratings_week, db_week_test$total_cars)
+
+# Then we add the location effect:
+
+week_grid_avgs <- db_week_train %>% 
+  left_join(week_hour_avgs, by = 'Hour') %>%
+  group_by(gridKey) %>% 
+  summarize(b_u_week = mean(total_cars - mu_db_weekTrain - b_i_week))
+
+predicted_ratings_week <- db_week_test %>% 
+  left_join(week_hour_avgs, by='Hour') %>%
+  left_join(week_grid_avgs, by='gridKey') %>%
+  mutate(pred = mu_db_dayTrain + b_i_week + b_u_week) %>%
+  pull(pred)
+
+
+model_2_day_rmse <- RMSE(predicted_ratings_week, db_week_test$total_cars)
+
+# Then the weekday effect:
+
+week_day_avgs <- db_week_train %>% 
+  left_join(week_hour_avgs, by = 'Hour') %>%
+  left_join(week_grid_avgs, by='gridKey') %>%
+  group_by(Weekday) %>% 
+  summarize(b_d_week = mean(total_cars - mu_db_weekTrain - b_i_week - b_u_week))
+
+
+```
+
+
+```{r prediction-linear-full}
+
+
+# full database calculation - 
+
+# First, the hour effect:
+
+
+hour_avgs <- db_train %>% 
+  group_by(Hour) %>% 
+  summarize(b_i = mean(total_cars - mu_dbTrain))
+
+hour_avgs %>% qplot(b_i, geom ="histogram", data = ., color = I("slategray4"))
+
+
+predicted_ratings <- mu_Train + db_test %>% 
+  left_join(week_hour_avgs, by='Hour') %>%
+  pull(b_i)
+
+model_1_week_rmse <- RMSE(predicted_ratings_week, db_week_test$total_cars)
 
 # Then we add the location effect:
 
@@ -406,7 +517,10 @@ predicted_ratings_day <- db_day_test %>%
 model_2_day_rmse <- RMSE(predicted_ratings_day, db_day_test$total_cars)
 
 
+```
 
+
+```{r prediction-linear-extra}
 
 
 
@@ -456,15 +570,36 @@ Now we will move on to knn modeling:
 
 ```{r prediction-knn}
 
-train_knn1 <- train(total_cars ~ Hour + gridKey + Weekday, method = "knn", data = dbg1_train)
+train_knn <- train(total_cars ~ Hour + gridKey + Weekday, method = "knn", data = db_train)
 
-y_hat_knn <- predict(train_knn1, dbg1_test, type = "raw")
+y_hat_knn <- predict(train_knn, db_test, type = "raw")
+
+plot(train_knn)
+
+train_knn$bestTune
+
+RMSE(y_hat_knn, db_test$total_cars)
+
+train_knnD <- train(total_cars ~ Hour + gridKey, method = "knn", data = db_day_train)
+
+y_hat_knnD <- predict(train_knnD, db_day_test, type = "raw")
+
+plot(train_knnD)
+
+train_knnD$bestTune
+
+RMSE(y_hat_knnD, db_day_test$total_cars)
 
 
 train_knnW <- train(total_cars ~ Hour + gridKey + Weekday, method = "knn", data = db_week_train)
 
 y_hat_knnW <- predict(train_knnW, db_week_test, type = "raw")
 
+plot(train_knnW)
+
+train_knnW$bestTune
+
+RMSE(y_hat_knnW, db_week_test$total_cars)
 
 ```
 
