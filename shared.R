@@ -23,21 +23,24 @@ if(!require(ggmap)) install.packages("ggmap", repos = "http://cran.us.r-project.
 if(!require(lubridate)) install.packages("lubridate", repos = "http://cran.us.r-project.org")
 if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
 if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(downloader)) install.packages("downloader", repos = "http://cran.us.r-project.org")
 
 
 
 dl <- tempfile()
-download.file("https://www.kaggle.com/doit-intl/autotel-shared-car-locations/downloads/autotel-shared-car-locations.zip", dl, method = 'libcurl')
-download.file("https://github.com/tomcache/data-science-shared-cars/blob/master/datasource/autotel-shared-car-locations.zip", dl, method = 'libcurl')
-unzip("autotel-shared-car-locations.zip", exdir = "autotel")
 
+# From github:
 
-sharedAutos <- read.csv("autotel/sample_table.csv", stringsAsFactors = FALSE)
+dURL <- "https://github.com/tomcache/data-science-shared-cars/raw/master/datasource/autotel-shared-car-locations.zip"
 
+download.file(dURL, destfile = dl, method = "wininet")
 
-#
-# p + ggtitle("Plot of length \n by dose") +
-# xlab("Dose (mg)") + ylab("Teeth length")
+unzip(dl, overwrite = TRUE, exdir = "autotel")
+
+# Create our database file from the supplied sample data:
+
+db <- read_csv("autotel//sample_table.csv")
+  
 
 #------------------------------------------------------------------
 #

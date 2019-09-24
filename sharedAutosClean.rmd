@@ -8,13 +8,13 @@ output: html_document
 ## Introduction
 As part of a program to improve the livability of its environs, the city of Tel Aviv, Israel has developed a car sharing service (think Zipcar) called AutoTel that allows users to take a car from an available location whenever they wish and use it for transportation. When finished, they can park it at the nearest designated spot near their destination that is open. Since this service depends on the users to distribute cars around the city, and since demand patterns frequently shift, it is important to study the usage patterns in order to be able to provide enough cars in the right places to insure that most users can utilize this service when they need it.
 
-This project will use data from a database available on kaggle that contains data on the avaialability of cars in Tel Aviv from xxx to yyy. We will examine this data and modify it to make it more useful for our analysis, and will provide some observations on usage patterns.
+This project will use data from a database available on kaggle that contains data on the avaialability of cars in Tel Aviv from mid-December, 2018 to mid-January, 2019. We will examine this data and modify it to make it more useful for our analysis, and will provide some observations on usage patterns.
 
 What this data does not provide, however is any information on the users demand, other than by proxy when a car is moved from a particular location (if someone wants to use a car in a particular neighborhood, but there is no car nearby, we don't see that information). However, we will develop a model, using machine learning techniques, in order to predict the availability of cars.
 
 ### Project setup and environment
 
-Check for required packages and install when necessary. 
+Check for required packages and install them when necessary. 
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -33,29 +33,39 @@ if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.
 
 ### Data
 
-This project will utilize the dataset _shared_table_, a sample of a Big Query dataset available on Kaggle provided by DoIt International, and can be found  [here](https://www.kaggle.com/doit-intl/autotel-shared-car-locations).
+This project will utilize the dataset _shared_table_, a sample of a Big Query dataset available on Kaggle provided by Do-It International, and can be found  [here](https://www.kaggle.com/doit-intl/autotel-shared-car-locations).
 
-For the purposes of this project, a copy of this dataset is also provided in the github project here, since Kaggle requires an authenticated account in order to access the data. 
+For the purposes of this project, a copy of this dataset is also provided in the github project since Kaggle requires an authenticated account in order to access the data. 
 
 This dataset sample contains one months worth of data on parked cars in the following format:
 
 timestamp, geographic location, # of cars in location, list of car identifiers
 
-We will load the data and adjust it into the format that we want to use to analyze the usage patterns:
+We will load the data and adjust it into the format that we want to use to analyze the usage patterns.
+
+Download the sample data, unzip the file and convert it for use in R:
 
 ```{r load-data, warning = FALSE}
 
+
 dl <- tempfile()
-download.file("https://www.kaggle.com/doit-intl/autotel-shared-car-locations/downloads/autotel-shared-car-locations.zip", dl)
 
+dURL <- "https://github.com/tomcache/data-science-shared-cars/raw/master/datasource/autotel-shared-car-locations.zip"
 
+download.file(dURL, destfile = dl, method = "wininet")
+
+unzip(dl, overwrite = TRUE, exdir = "autotel")
 
 db <- read_csv("autotel//sample_table.csv")
 
 ```
 
 
-We first take a look at the structure, definition and layout of the sample data:
+We first take a look at the structure, definition and layout of the sample data. We see from the below that we have a total of about 6.7 million observations of parked car locations and times. From the summary, we also see that the number of cars in each location can vary from 0 to 10 cars. 
+
+We also pull information from the timestamps to get the start and end date of the observations. Since the data is from December 11 through January 10, we expect that there may be effects due to holiday and end of year celebrations.
+
+
 ```{r view-data}
 
 glimpse(db)
@@ -64,17 +74,13 @@ summary(db)
 min(db$timestamp)
 max(db$timestamp)
 
-length(unique(db$carsList))
-
-length(unique(db$latitude))
-
-length(unique(db$longitude))
-
-length(unique(db$total_cars))
 
 ```
 
-Our first task will be to arrange the data to make it more useful for our analysis. We want to correct the timestamp format, and we will add columns to allow us to group observations by time, day of week, and we also adjust the timestamps for local time. Finally, we add columns to allow grouping by location.
+Our first task will be to arrange the data to make it more useful for our analysis. We want to correct the timestamp format, and we will add columns to allow us to group observations by time and day of the week. We will also adjust the timestamps for local time. Finally, we add columns to allow grouping by location.
+
+In order to facilitate the location analysis, we create a grid structure of approximately
+110 x 90m square. We also create a unique key for each grid to allow us to easily index by this metric. 
 
 ```{r tidying-data}
 
@@ -112,10 +118,16 @@ glimpse(db)
 
 ### Analysis
 
-We now want to examine the data in more detail to see what it can tell us about the usage patterns for the shared car service. Since we have the number and location of all of the shared cars that are not in use for each timestamp entry, we can use this to plot the availability of cars across the fleet for the sample time period:
+We now want to examine the data in more detail to see what it can tell us about the usage patterns for the shared car service. Since we have the number and location of all of the shared cars that are not in use for each timestamp entry, we can use this to plot the availability of cars across the fleet for the sample time period.
+
+We see several patterns in this data. From this plot, we can see that there is a daily cycle that the demand follows. We also see a dropout around December 18, which as it turns out is a national holiday in Israel. 
+
+By looking at the smoothed plot, we can also discern that there is a weekly cycle to car demand as well. 
+
+It is also likely that there are effects for other holiday observations during this timeframe which would be more apparent if we had a wider range of samples, but these will not be periodic in nature, as is the case for the previously noted national holiday. 
 
 
-```{r analysis-availability}
+```{r analysis-availability, fig.align = 'center', fig.width = 6, fig.height = 4}
 
 db %>% group_by(timestamp) %>% summarize(cars_available = sum(total_cars)) %>%
     ggplot(aes(timestamp, cars_available)) + geom_line(color = "slategray4", size = 1.0) +
@@ -128,7 +140,23 @@ all_cars <- db %>% group_by(timestamp) %>% summarize(cars_available = sum(total_
 
 ```
 
-From this plot, we can see that the demand chages periodically throughout the day, and from the smoothed plot we can also see that the demand is periodic with the day of the week. We also see a dropout around December 18, which as it turns out is a national holiday in Israel. It is also likely that there are effects for other holiday observations during this timeframe which would be more apparent if we had a wider range of samples, but these will not be periodic in nature. 
+Let's dive a little further into the details of this data.
+
+By looking at a single 24-hour period for a weekday, we can observe that the demand for cars starts to occur around 6am, has several local peaks during the day, relaxes around lunch and dinnertime, and surprisingly the peak demand for the day occurs around 9pm before tapering off and going through the cycle again.
+
+```{r analysis-availability-day}
+
+sample_day1 <- ymd("2018-12-15")
+
+db_day1 <- db %>% filter(as_date(timestamp) == sample_day1 )
+
+
+db_day1 %>% group_by(timestamp) %>% summarize(cars_available = sum(total_cars)) %>%
+  ggplot(aes(timestamp, cars_available)) + geom_line(color = "slategray4", size = 1.0) +
+  ggtitle("Car Availability for Tuesday, December 15, 2018")
+  
+
+```
 
 We'll next take a look in more detail at the apparent periodicity to confirm our intuition:
 
@@ -159,21 +187,7 @@ dbCarUse %>% group_by(label_wday) %>%
 ```
 
 
-By looking at a single 24-hour period for a weekday, we can also observe that the demand for cars starts to occur around 6am, has several local peaks during the day, relaxes around lunch and dinnertime, and surprisingly the peak demand for the day occurs around 9pm before tapering off and going through the cycle again.
 
-```{r analysis-availability-day}
-
-sample_day1 <- ymd("2018-12-15")
-
-db_day1 <- db %>% filter(as_date(timestamp) == sample_day1 )
-
-
-db_day1 %>% group_by(timestamp) %>% summarize(cars_available = sum(total_cars)) %>%
-  ggplot(aes(timestamp, cars_available)) + geom_line(color = "slategray4", size = 1.0) +
-  ggtitle("Car Availability for Tuesday, December 15, 2018")
-  
-
-```
 
 We can also plot some car locations to see how they are distributed across the city, and how this varies by hour, to get a sense of the demand for the service. In order to accomplish this, we will need to get an understanding of the identity of the cars in each location. From our summary of the database, above, we know that there are a maximum of 10 cars in each location per timestamp, so we use that to construct our list:
 
@@ -220,20 +234,6 @@ flowByGrid %>% ggplot(aes(Grid_long, Grid_lat, color = inventory, size = invento
                         high = "red", space = "Lab" )
   # facet_wrap(~Hour)
 
-flowByGrid %>% ggplot(aes(Grid_long, Grid_lat, color = inventory)) + 
-  geom_point(size = 3) +
-  scale_color_gradient2(midpoint = 2.5, low = "blue",  mid = "gold",
-                        high = "red", space = "Lab" ) +
-  facet_wrap(~Hour)
-
-f <- flowByGrid %>% ggplot(aes(Grid_long, Grid_lat, color = inventory, size = inventory, frame = Hour)) + 
-  geom_point() +
-  scale_color_gradient2(midpoint = 2.5, low = "blue",  mid = "gold",
-                        high = "red", space = "Lab" ) +
-theme_set(theme_bw())
-
-f + transition_time(Hour) +
-  labs(title = "Hour: {frame_time}")
 
 ```
 
@@ -269,33 +269,7 @@ p +
 
 ```
 
-```{r analysis-location-map-extra}
 
-# Calculate the change in inventory by grid per hour:
-
-flowByGrid <- 
-  flowByGrid %>%
-  group_by(Grid_lat, Grid_long) %>%
-  mutate(carFlow = inventory - dplyr::lag(inventory, n = 1, default = NA, order_by = Hour))
-
-
-m1 <- flowByGrid %>% filter(carFlow != 0 & Hour == 12)
-
-m2 <- flowByGrid %>% filter(carFlow != 0 & Hour == 20)
-
-p + geom_point(aes(Grid_long, Grid_lat, color = carFlow), data = m1, size = 3) +
-  scale_color_gradient2(midpoint = 0, low = "blue", mid = "slategray4",
-                        high = "red", space = "Lab" ) +
-  labs(title = "Tel Aviv car locations 12/15/18 12pm")
-
-p + geom_point(aes(Grid_long, Grid_lat, color = carFlow), data = m2, size = 3) +
-  scale_color_gradient2(midpoint = 0, low = "blue", mid = "slategray4",
-                        high = "red", space = "Lab" ) +
-  labs(title = "Tel Aviv car locations 12/15/18 8pm")
-
-
-
-```
 
 
 #### Availability patterns
@@ -553,50 +527,7 @@ model_3_rmse <- RMSE(predicted_ratings, db_test$total_cars)
 
 
 
-```{r prediction-linear-extra}
 
-
-
-fit_dayH <- lm(total_cars ~ as.factor(Hour), data = db_day_train)
-
-summary(fit_dayH)
-
-
-fit_dayL <- lm(total_cars ~ as.factor(gridKey), data = db_day_train)
-
-summary(fit_dayL)
-
-fit_dayW <- lm(total_cars ~ as.factor(Weekday), data = db_day_train)
-
-summary(fit_dayW)
-
-
-
-
-pred_day <- lm(total_cars ~ Hour + gridKey, data = db_day_train)
-
-summary(pred_day)
-
-predictions_day <- predict(pred_day, db_day_test)
-
-RMSE(db_day_test$total_cars, predictions_day)
-
-
-pred_week <- lm(total_cars ~ Hour + gridKey + Weekday, data = db_week_train)
-
-predictions_week <- predict(pred_week, db_week_test)
-
-RMSE(db_week_test$total_cars, predictions_week)
-
-
-pred_full <- lm(total_cars ~ Hour + gridKey + Weekday, data = db_train)
-
-predictions_full <- predict(pred_full, db_test)
-
-RMSE(db_test$total_cars, predictions_full)
-
-
-```
 
 
 Now we will move on to knn modeling:
@@ -615,29 +546,6 @@ train_knnD$bestTune
 
 model_knn_day <- RMSE(y_hat_knnD, db_day_test$total_cars)
 
-# Model: week
-
-train_knnW <- train(total_cars ~ Hour + gridKey + Weekday, method = "knn", data = db_week_train)
-
-y_hat_knnW <- predict(train_knnW, db_week_test, type = "raw")
-
-plot(train_knnW)
-
-train_knnW$bestTune
-
-model_knn_week <- RMSE(y_hat_knnW, db_week_test$total_cars)
-
-## Model: full
-
-train_knn <- train(total_cars ~ Hour + gridKey + Weekday, method = "knn", data = db_train)
-
-y_hat_knn <- predict(train_knn, db_test, type = "raw")
-
-plot(train_knn)
-
-train_knn$bestTune
-
-model_knn_full <- RMSE(y_hat_knn, db_test$total_cars)
 
 ```
 
@@ -646,10 +554,6 @@ model_knn_full <- RMSE(y_hat_knn, db_test$total_cars)
 
 ```
 
-```{r predict-maps}
-
-
-```
 
 ```{r next}
 
