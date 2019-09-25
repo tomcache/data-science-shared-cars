@@ -158,16 +158,12 @@ db_day1 %>% group_by(timestamp) %>% summarize(cars_available = sum(total_cars)) 
 
 ```
 
-We'll next take a look in more detail at the apparent periodicity to confirm our intuition:
+We'll next take a look in more detail at the apparent periodicity to confirm our intuition. First, we sort out how the availability varies by the time of day across all of the samples. We see that there is a definite pattern, with the peak demand periods occurring in the late morning and evening. We next analyze the variability by weekday. Here, surprisingly we see that the most active day is Thursday. The minimum activity is recorded on Saturday, which is a day of religious observance in Israel.
+
+We also perform a calculation to understand the amount of utilization of the fleet. We see in the data that there is a total of 260 cars 
 
 ```{r analysis-availability-detail}
 
-# We can plot the utilization of the fleet over time:
-dbCarUse <- dbCarUse %>% mutate(utilize = 1 - total_cars/fleet)
-
-dbCarUse %>% ggplot(aes(x = utilize, fill = label_wday)) + 
-  geom_density(position = "identity", alpha = 0.6) +
-  ggtitle("Density Plot of Shared Car Fleet Utilization") 
 
 dbCarUse %>% group_by(Hour) %>% summarize(cars_available = sum(total_cars)) %>%
     ggplot(aes(Hour, cars_available)) + 
@@ -183,6 +179,14 @@ dbCarUse %>% group_by(label_wday) %>%
 (Utilize_min <- min(dbCarUse$utilize))
 
 (Utilize_max <- max(dbCarUse$utilize))
+
+# We can plot the utilization of the fleet over time:
+dbCarUse <- dbCarUse %>% mutate(utilize = 1 - total_cars/fleet)
+
+dbCarUse %>% ggplot(aes(x = utilize, fill = label_wday)) + 
+  geom_density(position = "identity", alpha = 0.6) +
+  ggtitle("Density Plot of Shared Car Fleet Utilization") 
+
 
 ```
 
@@ -528,7 +532,11 @@ model_3_rmse <- RMSE(predicted_ratings, db_test$total_cars)
 
 
 
+We see from the above that we are able to improve our modeling accuracy by including the time of day and location factors. THe differences from day to day do not seem to help. 
 
+We will now experiment with a knn model. Since the demand for cars is likely to be very similar in the locations immediately adjacent to any given spot, and vary slowly as the spots are traversed, it seems intuitive that this technique may help with accuracy by including some neighbor information in our model. 
+
+However, it turns out that this model is computationally intensive with large numbers of data points, so for the purposes of this research, we will limit our experiment to the one day sample that we have been using in some of our previous models. 
 
 Now we will move on to knn modeling:
 
@@ -538,47 +546,113 @@ Now we will move on to knn modeling:
 
 train_knnD <- train(total_cars ~ Hour + gridKey, method = "knn", data = db_day_train)
 
-y_hat_knnD <- predict(train_knnD, db_day_test, type = "raw")
+train_knnD
 
 plot(train_knnD)
 
 train_knnD$bestTune
+
+y_hat_knnD <- predict(train_knnD, db_day_test, type = "raw")
 
 model_knn_day <- RMSE(y_hat_knnD, db_day_test$total_cars)
 
 
 ```
 
-```{r results-review}
+We now put all of our mdeling results into a table for comparison
+
+```{r results}
+
+rmse_results <- data_frame(method = "One Day Baseline (mean)", RMSE = baseline_day_rmse)
+
+rmse_results <- bind_rows(rmse_results,
+                  data_frame(method="One Day Hour Effect Model",  
+                  RMSE = model_1_day_rmse)
+                  )
+
+rmse_results <- bind_rows(rmse_results,
+                  data_frame(method="One Day Location + Hour Effects Model",  
+                  RMSE = model_2_day_rmse)
+                  )
+
+
+rmse_results <- data_frame(method = "One Week Baseline (mean)", RMSE = baseline_week_rmse)
+
+                             
+rmse_results <- bind_rows(rmse_results,
+                  data_frame(method="One Week Hour Effect Model",  
+                  RMSE = model_1_week_rmse)
+                  )                                    
+
+rmse_results <- bind_rows(rmse_results,
+                  data_frame(method="One Week Location + Hour Effects Model",  
+                  RMSE = model_2_week_rmse)
+                  )                                    
+
+rmse_results <- bind_rows(rmse_results,
+                  data_frame(method="One Week Weekday + Location + Hour Effects Model",  
+                  RMSE = model_3_week_rmse)
+                  )                                    
+
+
+rmse_results <- data_frame(method = "Full Sample Baseline (mean)", RMSE = baseline_rmse)
+
+
+rmse_results <- bind_rows(rmse_results,
+                  data_frame(method="Full Sample Hour Effect Model",  
+                  RMSE = model_1_rmse)
+                  )                                    
+
+rmse_results <- bind_rows(rmse_results,
+                  data_frame(method="Full Sample Location + Hour Effects Model",  
+                  RMSE = model_2_rmse)
+                  )       
+
+rmse_results <- bind_rows(rmse_results,
+                  data_frame(method="Full Sample Weekday + Location + Hour Effects Model",  
+                  RMSE = model_3_rmse)
+                  )       
+
+rmse_results <- bind_rows(rmse_results,
+                          data_frame(method="One Day knn Model",  
+                                     RMSE = model_knn_day)
+)       
+
+rmse_results %>% knitr::kable()
+
+```
+
+Now that we have our predictions, let's compare a plot of our results and compare that to our earlier plot of availability. With our derived model, we can see the patterns of usage similar to the actual data beginning to emerge. When we look at the knn model data, however, we see that the same clustering patterns are visible in the plot, and the relative scale of availability matches the actual data fairly well (keep in mind that the time scales of the actual data and the model data plots are slightly different). Overall the knn model provides the best RMSE and most accurate representation of the pattern of usage that we are attempting to predictd. More work remains in data reduction techniques in order to be able to generalize this work for larger samples of data.
+
+```{r model-map}
+
+p <- db_day_test %>% 
+  left_join(day_hour_avgs, by='Hour') %>%
+  left_join(day_grid_avgs, by='gridKey') %>%
+  mutate(pred = mu_db_dayTrain + b_i_day + b_u_day) %>%
+  select(Grid_long, Grid_lat, pred)
+
+
+p %>% ggplot(aes(Grid_long, Grid_lat, color = pred, size = pred)) + 
+  geom_point() +
+  scale_color_gradient2(midpoint = 2.5, low = "blue",  mid = "gold",
+                        high = "red", space = "Lab" ) +
+    ggtitle("Car Availability Model ") 
+
+
+
+q <- p %>% select(-pred) %>% mutate(kpred = y_hat_knnD)
+
+q %>% ggplot(aes(Grid_long, Grid_lat, color = kpred, size = kpred)) + 
+  geom_point() +
+  scale_color_gradient2(midpoint = 2.5, low = "blue",  mid = "gold",
+                        high = "red", space = "Lab" ) +
+  ggtitle("Car Availability Model Using knn") 
 
 
 ```
 
 
-```{r next}
-
-
-```
-
-## R Markdown
-
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
-```
-
-## Including Plots
-
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
-```
-
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
 
 
 
