@@ -6,7 +6,7 @@ output: html_document
 ---
 
 ## Introduction
-As part of a program to improve the livability of its environs, the city of Tel Aviv, Israel has developed a car sharing service (think Zipcar) called AutoTel that allows users to take a car from an available location whenever they wish and use it for transportation. When finished, they can park it at the nearest designated spot near their destination that is open. Since this service depends on the users to distribute cars around the city, and since demand patterns frequently shift, it is important to study the usage patterns in order to be able to provide enough cars in the right places to insure that most users can utilize this service when they need it.
+As part of a program to improve the livability of its environs, the city of Tel Aviv, Israel has developed a car sharing service (think Zipcar combined with Blue Bikes) called AutoTel that allows users to take a car from an available location whenever they wish and use it for transportation. When finished, they can park it at the nearest designated spot near their destination that is open. Since this service depends on the users to distribute cars around the city, and since demand patterns frequently shift, it is important to study the usage patterns in order to be able to provide enough cars in the right places to insure that most users can utilize this service when they need it.
 
 This project will use data from a database available on kaggle that contains data on the avaialability of cars in Tel Aviv from xxx to yyy. We will examine this data and modify it to make it more useful for our analysis, and will provide some observations on usage patterns.
 
@@ -47,8 +47,6 @@ We will load the data and adjust it into the format that we want to use to analy
 
 dl <- tempfile()
 download.file("https://www.kaggle.com/doit-intl/autotel-shared-car-locations/downloads/autotel-shared-car-locations.zip", dl)
-
-
 
 db <- read_csv("autotel//sample_table.csv")
 
