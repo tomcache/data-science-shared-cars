@@ -1,16 +1,18 @@
 ---
 title: "Shared Car Service Availability Study"
 author: "Thomas E Linnell"
-date: "9/26/2019"
+date: "9/28/2019"
 output: html_document
 ---
 
 ## Introduction
-As part of a program to improve the livability of its environs, the city of Tel Aviv, Israel has developed a car sharing service (think Zipcar) called AutoTel that allows users to take a car from an available location whenever they wish and use it for transportation. When finished, they can park it at the nearest designated spot near their destination that is open. Since this service depends on the users to distribute cars around the city, and since demand patterns frequently shift, it is important to study the usage patterns in order to be able to provide enough cars in the right places to insure that most users can utilize this service when they need it.
+As part of a program to improve the livability of its environs, the city of Tel Aviv, Israel has developed a car sharing service (think Zipcar combined with Blue Bikes) called AutoTel that allows users to take a car from an available location whenever they wish and use it for transportation. When finished, they can park it at the nearest designated spot near their destination that is open. Since this service depends on the users to distribute cars around the city, and since demand patterns frequently shift, it is important to study the usage patterns in order to be able to provide enough cars in the right places to insure that most users can utilize this service when they need it.
 
 This project will use data from a database available on kaggle that contains data on the avaialability of cars in Tel Aviv from mid-December, 2018 to mid-January, 2019. We will examine this data and modify it to make it more useful for our analysis, and will provide some observations on usage patterns.
 
 What this data does not provide, however is any information on the users demand, other than by proxy when a car is moved from a particular location (if someone wants to use a car in a particular neighborhood, but there is no car nearby, we don't see that information). However, we will develop a model, using machine learning techniques, in order to predict the availability of cars.
+
+We will also investigate the performance of an alternative model to provide comparisons to our initial attempt and to see if improvements in accuracy are possible.
 
 ### Project setup and environment
 
@@ -33,13 +35,9 @@ if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.
 
 ### Data
 
-This project will utilize the dataset _shared_table_, a sample of a Big Query dataset available on Kaggle provided by Do-It International, and can be found  [here](https://www.kaggle.com/doit-intl/autotel-shared-car-locations).
+This project will utilize the dataset _shared_table_, in csv format, which is a sample of a Big Query dataset available on Kaggle provided by Do-It International, and can be found  [here](https://www.kaggle.com/doit-intl/autotel-shared-car-locations).
 
-For the purposes of this project, a copy of this dataset is also provided in the github project since Kaggle requires an authenticated account in order to access the data. 
-
-This dataset sample contains one months worth of data on parked cars in the following format:
-
-timestamp, geographic location, # of cars in location, list of car identifiers
+For the purposes of this project, a copy of this dataset is also provided in the github project repository since Kaggle requires an authenticated account in order to access the data. 
 
 We will load the data and adjust it into the format that we want to use to analyze the usage patterns.
 
@@ -56,13 +54,16 @@ download.file(dURL, destfile = dl, method = "wininet")
 
 unzip(dl, overwrite = TRUE, exdir = "autotel")
 
+# This dataset sample contains one months worth of data on parked cars in the format shown below.
+
+
 db <- read_csv("autotel//sample_table.csv")
 
 ```
 
 #### Review
 
-We first take a look at the structure, definition and layout of the sample data. We see from the below that we have a total of about 6.7 million observations of parked car locations and times. From the summary, we also see that the number of cars in each location can vary from 0 to 10 cars. 
+We first take a look at the structure, definition and layout of the sample data. We see from the below that we have a total of about 6.7 million observations of parked car locations and times. From the summary, we also see that the number of cars in each location can vary from 0 to 10. 
 
 ```{r view-data}
 
@@ -152,15 +153,10 @@ all_cars <- db %>% group_by(timestamp) %>% summarize(cars_available = sum(total_
 
 ```
 
-```{r analysis-total-fleet}
-
-(fleet <-  max(all_cars$cars_available))
-
-```
 
 Let's dive a little further into the details of this data.
 
-By looking at a single 24-hour period for a weekday, we can observe that the demand for cars starts to occur around 6am, has several local peaks during the day, relaxes around lunch and dinnertime, and surprisingly the peak demand for the day occurs around 9pm before tapering off and going through the cycle again.
+By looking at a single 24-hour period for a weekday, we can observe that the demand for cars starts to occur around 6am, has several local peaks during the day, relaxes around lunch and dinnertime, and the peak demand for the day occurs around 9pm before tapering off and going through the cycle again.
 
 ```{r analysis-availability-day, fig.align = 'center', fig.width = 8, fig.height = 4}
 
@@ -173,6 +169,8 @@ db_day1 %>% group_by(timestamp) %>% summarize(cars_available = sum(total_cars)) 
   ggplot(aes(timestamp, cars_available)) + geom_line(color = "slategray4", size = 1.0) +
   ggtitle("Car Availability for Tuesday, December 15, 2018")
   
+fleet <-  max(all_cars$cars_available)
+
 
 ```
 
@@ -199,19 +197,29 @@ dbCarUse %>% group_by(label_wday) %>%
   geom_boxplot(aes(group = label_wday)) +
   ggtitle("Shared Car Availability in Tel Aviv by Weekday") 
 
-(Utilize_min <- min(dbCarUse$utilize))
-
-(Utilize_max <- max(dbCarUse$utilize))
 
 ```
 
 
 We also perform a calculation to understand the amount of utilization of the fleet. We see in the data that there is a total of 260 cars. We can use this information to calculate how much of the car fleet is in use at any given time. We note that the maximum utilization is 37%, which means that at least about  two-thirds of the fleet is always idle at any given time. This is likely due to several factors, such as having cars parked in areas where there is little demand at the moment, and the mean time between trip starts from any particular location. In other words, the system will never be highly utilized unless active steps are taken to attempt to match supply with demand at every point. 
 
+```{r analysis-total-fleet}
+# Size of our car fleet
+fleet
+
+# Minimum number of cars in use
+(Utilize_min <- min(dbCarUse$utilize))
+
+# Maximum number of cars in use
+(Utilize_max <- max(dbCarUse$utilize))
+
+```
+
+
 By plotting the overlapped density plots by day, we can get a better understanding of the distribution of this demand. We see that the utilization has two peaks at ~5% utilization ,and ~ 15% utilization. The busiest days also exhibit an additional "shoulder" at about 20%. This type of information can be used to plan maintenance cycles, demand-level pricing models, and so on.
 
 
-```{r analysis-availability-detail-utilize, fig.align = 'center', fig.width = 8, fig.height = 4}
+```{r analysis-availability-detail-utilize, fig.align = 'center', fig.width = 8, fig.height = 4, echo = FALSE}
 
 dbCarUse %>% ggplot(aes(x = utilize, fill = label_wday)) + 
   geom_density(position = "identity", alpha = 0.6) +
@@ -224,6 +232,8 @@ Next we analyze the number of cars that visit each of our defined grids over a o
 
 
 ```{r analysis-location-day, fig.align = 'center', fig.width = 8, fig.height = 4}
+
+# split out the car identifiers per observation into distinct columns
 
 dbcars <-  db %>% 
   select(carsList) %>% 
@@ -255,14 +265,15 @@ flowByGrid <- dbByCar %>%
 flowByGrid %>% ggplot(aes(Grid_long, Grid_lat, color = inventory, size = inventory)) + 
   geom_point() +
   scale_color_gradient2(midpoint = 2.5, low = "blue",  mid = "gold",
-                        high = "red", space = "Lab" )
+                        high = "red", space = "Lab" ) +
+  ggtitle("Car Availability by location (grid)")
  
 ```
 
 
-And through the magic of ggmaps, we can plot these locations over a map of the city to see 
+And through the magic of ggmaps, we can plot these locations over a map of the city to see how these patterns map onto the neighborhoods of the city.
 
-```{r analysis-location-map}
+```{r analysis-location-map, echo = FALSE}
 
 # First, define the box for Tel Aviv:
 
@@ -290,7 +301,7 @@ p +
 
 #### Availability patterns
 
-Let's look at the distribution of the total number of cars by location. We can see from this chart that the distribution is not random, with some locations having many more cars fill spots than others. 
+Let's look at the distribution of the total number of cars by location. We can see from this chart that once we remove the geographic clustering information, the distribution is not random but follows a power law distribution, with some locations having many more cars fill spots than others. 
 
 ```{r analysis-location-dist, fig.align = 'center', fig.width = 8, fig.height = 4}
 
@@ -307,6 +318,8 @@ ggplot(data = db_cars, aes(x = gridKey, y = cars_available)) +
 ### Availability Prediction
 
 Now that we have gotten some idea of the usage patterns in the data, we want to build a prediction system for cars in specific locations.
+
+#### Training and Test Sets
 
 We start by building a series of training and test sets. Since the number of observations in the full sample is fairly large, we will also create two smaller data sets, one which incorporates data from a single day, and another that includes observations for a single week. We will use these sets to compare the models performance against these different time epochs, as well as provide a more convenient vehicle for experimentation of various ML methods. 
 
@@ -361,6 +374,7 @@ db_week_test <- db_week_test %>%
 
 ```
 
+#### Prediction Model
 
 Now that we have our test sets, we will start building up a prediction model. 
 
@@ -373,26 +387,12 @@ RMSE <- function(true_ratings, predicted_ratings){
 }
 
 
-dbTrainMean <- db_train %>% summarize(Mean = mean(total_cars)) 
-mu_dbTrain <- mean(db_train$total_cars)
-
-db_dayTrainMean <- db_day_train %>% summarize(Mean = mean(total_cars)) 
-mu_db_dayTrain <- mean(db_day_train$total_cars)
-
-db_weekTrainMean <- db_week_train %>% summarize(Mean = mean(total_cars)) 
-mu_db_weekTrain <- mean(db_week_train$total_cars)
-
-(baseline_rmse <- RMSE(db_test$total_cars, mu_dbTrain))
-
-(baseline_day_rmse <- RMSE(db_day_test$total_cars, mu_db_dayTrain))
-
-(baseline_week_rmse <- RMSE(db_week_test$total_cars, mu_db_weekTrain))
-
-
 ```
 
 
 We now will build a predictor, utilizing a linear regression model. Since we have detected variability associated with location, time of day, and day of week, we will select these as factors for our calculation.
+
+##### Single day model
 
 We begin by building up a model utilizing our one-day sample. We calculate a baseline mean, and then add hour of the day and location (by grid) effects to see how these affect the accuracy of the model.
 
@@ -441,8 +441,35 @@ model_2_day_rmse <- RMSE(predicted_ratings_day, db_day_test$total_cars)
 
 ```
 
+We now put all of our modeling results into a table for comparison
 
-We will now develop a similar model, expanding our data to a full week of samples. We also add a calculation for the day of week efects to see how significant that might be. 
+We start with our analysis for a single day. In these results, we see that the hour
+of the day factor does not improve the prediction result, but by adding
+in information about the location we do significantly improve our result.
+
+```{r results-day}
+
+rmse_day_results <- tibble(method = "One Day Baseline (mean)", RMSE = baseline_day_rmse)
+
+rmse_day_results <- bind_rows(rmse_day_results,
+                  tibble(method="One Day Hour Effect Model",  
+                  RMSE = model_1_day_rmse)
+                  )
+
+rmse_day_results <- bind_rows(rmse_day_results,
+                  tibble(method="One Day Location + Hour Effects Model",  
+                  RMSE = model_2_day_rmse)
+                  )
+
+rmse_day_results %>% knitr::kable()
+
+
+```
+
+
+##### Single week model
+
+We will now develop a similar model, expanding our data to a full week of samples. We also add a calculation for the day of week effects to see how significant that might be. 
 
 ```{r prediction-linear-week, echo = FALSE}
 
@@ -505,7 +532,44 @@ model_3_week_rmse <- RMSE(predicted_ratings_week, db_week_test$total_cars)
 
 ```
 
-```{r prediction-linear-full}
+
+We now look at the results for a full week. Similar to our first set of results, we see that the
+time of day factor is not very important, while the location remains significant. We do see a
+slight degradation as compared to the single day, this might be attributable to different usage 
+patterns between weekdays and weekends, for example. 
+
+```{r results-week}
+
+
+rmse_week_results <- tibble(method = "One Week Baseline (mean)", RMSE = baseline_week_rmse)
+
+                             
+rmse_week_results <- bind_rows(rmse_week_results,
+                  tibble(method="One Week Hour Effect Model",  
+                  RMSE = model_1_week_rmse)
+                  )                                    
+
+rmse_week_results <- bind_rows(rmse_week_results,
+                  tibble(method="One Week Location + Hour Effects Model",  
+                  RMSE = model_2_week_rmse)
+                  )                                    
+
+rmse_week_results <- bind_rows(rmse_week_results,
+                  tibble(method="One Week Weekday + Location + Hour Effects Model",  
+                  RMSE = model_3_week_rmse)
+                  )                                    
+
+rmse_week_results %>% knitr::kable()
+
+```
+
+
+##### Full sample model
+
+We now proceed to expand our model to include the full set of data. This data will include the previously noted holidays as well as several weeks of daily and weekly patterns. 
+
+
+```{r prediction-linear-full, echo = FALSE}
 
 
 dbTrainMean <- db_train %>% summarize(Mean = mean(total_cars)) 
@@ -565,87 +629,6 @@ model_3_rmse <- RMSE(predicted_ratings, db_test$total_cars)
 
 ```
 
-We see from the above that we are able to improve our modeling accuracy by including the time of day and location factors. The differences from day to day do not seem to help. 
-
-We will now experiment with a knn model. Since the demand for cars is likely to be very similar in the locations immediately adjacent to any given spot, and vary slowly as the spots are traversed, it seems intuitive that this technique may help with accuracy by including some neighbor information in our model. 
-
-However, it turns out that this model is computationally intensive with large numbers of data points, so for the purposes of this research, we will limit our experiment to the one day sample that we have been using in some of our previous models. 
-
-
-```{r prediction-knn}
-
-# Now develop our knn model and prediction
-# Model: day
-
-train_knnD <- train(total_cars ~ Hour + gridKey, method = "knn", data = db_day_train)
-
-train_knnD
-
-plot(train_knnD)
-
-train_knnD$bestTune
-
-y_hat_knnD <- predict(train_knnD, db_day_test, type = "raw")
-
-model_knn_day <- RMSE(y_hat_knnD, db_day_test$total_cars)
-
-
-```
-
-We now put all of our modeling results into a table for comparison
-
-We start with our analysis for a single day. In these results, we see that the hour
-of the day factor does not significantly improve the prediction result, but by adding
-in information about the location significantly improves our result.
-
-```{r results-day}
-
-rmse_day_results <- tibble(method = "One Day Baseline (mean)", RMSE = baseline_day_rmse)
-
-rmse_day_results <- bind_rows(rmse_day_results,
-                  tibble(method="One Day Hour Effect Model",  
-                  RMSE = model_1_day_rmse)
-                  )
-
-rmse_day_results <- bind_rows(rmse_day_results,
-                  tibble(method="One Day Location + Hour Effects Model",  
-                  RMSE = model_2_day_rmse)
-                  )
-
-rmse_day_results %>% knitr::kable()
-
-
-```
-
-We now look at the results for a full week. Similar to our first set of results, we see that the
-time of day factor is not very important, while the location remains significant. We do see a
-slight degradation as compared to the single day, this might be attributable to different usage 
-patterns between weekdays and weekends, for example. 
-
-```{r results-week}
-
-
-rmse_week_results <- tibble(method = "One Week Baseline (mean)", RMSE = baseline_week_rmse)
-
-                             
-rmse_week_results <- bind_rows(rmse_week_results,
-                  tibble(method="One Week Hour Effect Model",  
-                  RMSE = model_1_week_rmse)
-                  )                                    
-
-rmse_week_results <- bind_rows(rmse_week_results,
-                  tibble(method="One Week Location + Hour Effects Model",  
-                  RMSE = model_2_week_rmse)
-                  )                                    
-
-rmse_week_results <- bind_rows(rmse_week_results,
-                  tibble(method="One Week Weekday + Location + Hour Effects Model",  
-                  RMSE = model_3_week_rmse)
-                  )                                    
-
-rmse_week_results %>% knitr::kable()
-
-```
 In our model with the full set of data, we see the same basic pattern as in the previous two
 models, with further degradation in the accuracy as more data with presumably additional variation 
 of usage patterns. We noted at the outset that this time period, coming as it does over the end of the year, includes various religious and national holidays, and presumably travel patterns that are not regular. 
@@ -677,6 +660,35 @@ rmse_results %>% knitr::kable()
 
 ```
 
+##### Prediction Model Using knn
+
+We see from the above that throughout the different datasets we are able to improve our modeling accuracy by including the time of day and location factors. The differences from day to day do not seem to help. 
+
+We will now experiment with a knn model. Since the demand for cars is likely to be very similar in the locations immediately adjacent to any given spot, and vary slowly as the spots are traversed, it seems intuitive that this technique may help with accuracy by including some neighbor information in our model. 
+
+However, it turns out that this model is computationally intensive with large numbers of data points, so for the purposes of this research, we will limit our experiment to the one day sample that we have been using in some of our previous models. 
+
+```{r prediction-knn}
+
+# Now develop our knn model and prediction
+# Model: day
+
+train_knnD <- train(total_cars ~ Hour + gridKey, method = "knn", data = db_day_train)
+
+train_knnD
+
+plot(train_knnD)
+
+train_knnD$bestTune
+
+y_hat_knnD <- predict(train_knnD, db_day_test, type = "raw")
+
+model_knn_day <- RMSE(y_hat_knnD, db_day_test$total_cars)
+
+
+```
+
+We see that the best performance of the model is with a small number of neighbors. This seems intuitive, as the demand for cars would likely be very similar with adjacent locations, but the similarity would fall off the further away the nighbor becomes. This neighbor information does improve our RMSE significantly, as we see in the table below.
 
 
 ```{r results-knn}
@@ -691,9 +703,13 @@ rmse_knn_results %>% knitr::kable()
 
 ```
 
-Now that we have our predictions, let's compare a plot of our results and compare that to our earlier plot of availability. With our derived model, we can see the patterns of usage similar to the actual data beginning to emerge. When we look at the knn model data, however, we see that the same clustering patterns are visible in the plot, and the relative scale of availability matches the actual data fairly well (keep in mind that the time scales of the actual data and the model data plots are slightly different). Overall the knn model provides the best RMSE and most accurate representation of the pattern of usage that we are attempting to predictd. More work remains in data reduction techniques in order to be able to generalize this work for larger samples of data.
+### Plotting the predicted results
 
-```{r model-map}
+Now that we have our predictions, let's compare a plot of our results and compare that to our earlier plot of availability. 
+
+With our first model, we can see the patterns of usage similar to the actual data beginning to emerge. However the range of predicted available cars is more restricted than in the actual data. 
+
+```{r model-map, echo = FALSE}
 
 m <- db_day_test %>% 
   left_join(day_hour_avgs, by='Hour') %>%
@@ -708,7 +724,12 @@ m %>% ggplot(aes(Grid_long, Grid_lat, color = pred, size = pred)) +
                         high = "red", space = "Lab" ) +
     ggtitle("Car Availability Model ") 
 
+```
 
+When we look at the knn model data, however, we see that the same clustering patterns that we saw in our data analysis are now more visible in the plot, and the relative scale of availability more closely matches the actual data. Overall the knn model provides the best RMSE and most accurate representation of the pattern of usage that we are attempting to predict. More work remains in data reduction techniques in order to be able to generalize this work for larger samples of data.
+
+
+```{r model-map-knn, echo = FALSE}
 
 q <- m %>% select(-pred) %>% mutate(kpred = y_hat_knnD)
 
@@ -719,11 +740,6 @@ q %>% ggplot(aes(Grid_long, Grid_lat, color = kpred, size = kpred)) +
   ggtitle("Car Availability Model Using knn") 
 
 
-# m + 
-#   geom_point(aes(Grid_long, Grid_lat, color = inventory, size = inventory), data = flowByGrid) +
-#   scale_color_gradient2(midpoint = 2.5, low = "blue",  mid = "gold",
-#                         high = "red", space = "Lab" ) +
-#     ggtitle("Shared Car Distribution in Tel Aviv 12/18/2018")
 
 ```
 

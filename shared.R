@@ -47,7 +47,9 @@ download.file(dURL, destfile = dl, method = "wininet")
 
 unzip(dl, overwrite = TRUE, exdir = "autotel")
 
-# Create our database file from the supplied sample data:
+# Create our database file from the supplied sample data
+# This dataset sample contains one months worth of data on parked cars in the format shown below.
+
 
 db <- read_csv("autotel//sample_table.csv")
   
@@ -200,11 +202,7 @@ dbCarUse %>% ggplot(aes(x = utilize, fill = label_wday)) +
   
 #------------------------------------------------------------------
 #
-# Create cars summary by grid:
-dbGridSum <- dbgrid %>% group_by(timestamp, gridKey) %>% summarize(carTotal = sum(total_cars)) 
-  
-# dbGridSum %>% ggplot(aes(gridKey, carTotal, group = timestamp)) + geom_line()  
-
+# create a list of entries separated by car, and add grid information:
 
 dbByCar <- left_join(db, dbcars) %>% 
   gather(CarI, Car, car1:car10)  %>% 
@@ -261,6 +259,16 @@ p +
   scale_color_gradient2(midpoint = 2.5, low = "blue",  mid = "gold",
                         high = "red", space = "Lab" ) +
   ggtitle("Shared Car Distribution in Tel Aviv 12/18/2018")
+
+
+# Let's look at the distribution of the total number of cars by location. We can see from this chart that once we remove the geographic clustering information, the distribution is not random but follows a power law distribution, with some locations having many more cars fill spots than others. 
+
+db_cars <- db_day1 %>% group_by(gridKey) %>% summarize(cars_available = sum(total_cars))
+
+db_cars$gridKey <- factor(db_cars$gridKey, levels = db_cars$gridKey[order(-db_cars$cars_available)])
+
+ggplot(data = db_cars, aes(x = gridKey, y = cars_available)) + 
+  geom_bar(stat = "identity", color = "slategray4")
 
 
 #------------------------------------------------------------------
@@ -493,6 +501,8 @@ y_hat_knnD <- predict(train_knnD, db_day_test, type = "raw")
 
 model_knn_day <- RMSE(y_hat_knnD, db_day_test$total_cars)
 
+# We now put all of our results into a table so that we can easily compare them
+
 rmse_results <- tibble(method = "One Day Baseline (mean)", RMSE = baseline_day_rmse)
 
 rmse_results <- bind_rows(rmse_results,
@@ -554,6 +564,33 @@ rmse_results <- bind_rows(rmse_results,
 )       
 
 rmse_results %>% knitr::kable()
+
+# With our predictions in the first day model, we can create a plot:
+
+m <- db_day_test %>% 
+  left_join(day_hour_avgs, by='Hour') %>%
+  left_join(day_grid_avgs, by='gridKey') %>%
+  mutate(pred = mu_db_dayTrain + b_i_day + b_u_day) %>%
+  select(Grid_long, Grid_lat, pred)
+
+
+m %>% ggplot(aes(Grid_long, Grid_lat, color = pred, size = pred)) + 
+  geom_point() +
+  scale_color_gradient2(midpoint = 2.5, low = "blue",  mid = "gold",
+                        high = "red", space = "Lab" ) +
+  ggtitle("Car Availability Model ") 
+
+
+# And now we can compare the result of our predictions from the knn model:
+
+q <- m %>% select(-pred) %>% mutate(kpred = y_hat_knnD)
+
+q %>% ggplot(aes(Grid_long, Grid_lat, color = kpred, size = kpred)) + 
+  geom_point() +
+  scale_color_gradient2(midpoint = 2.5, low = "blue",  mid = "gold",
+                        high = "red", space = "Lab" ) +
+  ggtitle("Car Availability Model Using knn") 
+
 
 
 
